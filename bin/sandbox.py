@@ -1,6 +1,6 @@
 import MySQLdb
 import pandas as pd
-import math
+import matplotlib.pyplot as plt
 
 """
 First task is to import chalkprint data from MySQL DB into a pandas DF, from there build models classifying when
@@ -24,22 +24,46 @@ data.index = data['timeStamp']
 del data['timeStamp']
 
 grouped = data.groupby('session_id')
+grouped_is_climbing = data.groupby('isClimbing')
 
 """Create new columns for change in acceleration and change in rotation, group by session_id"""
 
-def find_diff(data_column):
-        return data_column - data_column.shift(-1)
 
-var_to_loop = ["accelX", "accelY", "accelZ"]
+def find_diff(data, var_names):
+    return pd.Series(
+        (sum([(data[i] - data[i].shift(-1)) ** 2 for i in var_names])) ** .5
+        , index=data.index
+    )
 
-data['delta_accel'] = pd.Series(
-    (sum([find_diff(data[i])**2 for i in var_to_loop]))**.5/len(var_to_loop)
-    , index=data.index
-)
+def find_direction(data, var_names):
+    return pd.Series(
+        [1 if (data[i] > data[i].shift(-1)) else 0 for i in var_names]
+        ,index=data.index
+    )
 
-data['delta_accelX'] = pd.Series(find_diff(data['accelX'])**2, index=data.index)
-data['delta_accelY'] = pd.Series(find_diff(data['accelY'])**2, index=data.index)
-data['delta_accelZ'] = pd.Series(find_diff(data['accelZ'])**2, index=data.index)
+accel_to_loop = ["accelX", "accelY", "accelZ"]
+rot_to_loop = ["rotX", "rotY", "rotZ"]
+alt_to_loop = ["relAltitude"]
+
+data['delta_accel'] = find_diff(data, accel_to_loop)
+data['delta_rot'] = find_diff(data, rot_to_loop)
+data['delta_alt'] = find_diff(data, alt_to_loop)
+
+"""Set isClimbing Flag, start with 5 second rolling mean of altitude"""
+""" Smoothing dataset, default window = 5 seconds"""
+data['altRollingMean'] = pd.rolling_mean(data['relAltitude'], window=5)
+data['delta_altRollingMean'] = pd.rolling_mean(data['delta_alt'], window=5)
 
 
+""" Check for obvious breaks in rolling mean histogram"""
+data.plot.hist()
+data['altRollingMean'].hist(by=data['session_id'], bins=100)
+data['delta_altRollingMean'].hist(by=data['session_id'], bins=100)
 
+"""Find ground by taking rolling min across previous X minutes (method to find X minutes later)"""
+
+min_lookback = 300
+data['ground_level'] = pd.rolling_min(data['altRollingMean'], window=min_lookback)
+data['alt_climbed'] = pd.rolling_max(data['altRollingMean'], window =5) - data['ground_level']
+
+data.groupby('session_id').plot(data)

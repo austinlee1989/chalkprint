@@ -1,6 +1,7 @@
-import MySQLdb
 import pandas as pd
+import pymysql
 from scipy.signal import savgol_filter
+
 
 """
 First task is to import chalkprint data from MySQL DB into a pandas DF, from there build models classifying when
@@ -26,7 +27,7 @@ Process:
 
 
 def local_db_connect(query):
-    mysql_cn = MySQLdb.connect(host='127.0.0.1',
+    mysql_cn = pymysql.connect(host='127.0.0.1',
                                port=3306, user='root', passwd='fnwl5r',
                                db='chalkprint')
     return pd.read_sql(query, con=mysql_cn)
@@ -47,7 +48,7 @@ class BoulderingSession:
         session, then index on column
         """
         ts = pd.to_datetime(self.data[time_col], infer_datetime_format=True)
-        self.data.index = (ts - min(ts))/10**9
+        self.data.index = ts - min(ts)
         #pd.timestamp defaults to nanoseconds, dividing by 10^9 converts to sec
         del self.data[time_col]
 
@@ -62,12 +63,21 @@ class BoulderingSession:
             , index=self.data.index)
 
     def smooth_series(self, column, interval, method):
-        col_name = column + "_smooth_" + str(interval)
+        col_name = column + "_smoothed"
         if method == 'savgol':
             self.data[col_name] = savgol_filter(self.data[column], window_length=interval, polyorder=2)
         elif method == 'rolling_mean':
             self.data[col_name] = pd.rolling_mean(self.data[column], window=interval)
 
+    def find_start(self, column):
+        if self.data['is_climbing'] == False:
+            pass
+        return self.data['is_climbing']
+
+    def find_ground(self, min_interval=301, smooth_interval=29):
+        """input smoothed relAltitude"""
+        s_ = savgol_filter(self.data['relAltitude'], window_length=smooth_interval, polyorder=2)
+        return pd.rolling_min(s_, window=min_interval)
 
 """Global Variables/Lists"""
 
@@ -87,8 +97,11 @@ if __name__ == "__main__":
     for session in data_dict:
         session_bouldering = BoulderingSession(data_dict[session])
         session_bouldering.set_time_index('timeStamp')
-        session_bouldering.smooth_series(column='relAltitude', interval=5, method='rolling_mean')
+        session_bouldering.smooth_series(column='relAltitude', interval=29, method='savgol')
+        session_bouldering.find_diff(accel_to_loop)
+        session_bouldering.find_ground()
         out_data = session_bouldering.data_frame()
+        out_data['ground'] = session_bouldering.find_ground()
         print(out_data[:10])
-        out_data[['relAltitude', 'relAltitude_smooth_5']][1500:1800].plot()
+        out_data[['relAltitude', 'relAltitude_smoothed','ground']].plot()
 

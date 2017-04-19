@@ -67,3 +67,14 @@ data['ground_level'] = pd.rolling_min(data['altRollingMean'], window=min_lookbac
 data['alt_climbed'] = pd.rolling_max(data['altRollingMean'], window =5) - data['ground_level']
 
 data.groupby('session_id').plot(data)
+
+
+
+####
+testing_dict = data_dict[data_dict.keys()[0]]
+time_col = 'timeStamp'
+ts = pd.to_datetime(testing_dict[time_col], infer_datetime_format=True)
+# sec = pd.to_timedelta(ts, unit='s')
+normed_sec = ts - min(ts)
+self.data.index = normed_sec
+del self.data[time_col]

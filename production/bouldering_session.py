@@ -1,6 +1,6 @@
 import MySQLdb
 import pandas as pd
-# from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter
 
 """
 First task is to import chalkprint data from MySQL DB into a pandas DF, from there build models classifying when

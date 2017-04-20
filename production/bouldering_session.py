@@ -1,6 +1,6 @@
 import pandas as pd
-import pymysql
-from scipy.signal import savgol_filter
+import processtools as pt
+import local_connection
 
 
 """
@@ -25,21 +25,13 @@ Process:
 
 """
 
-
-def local_db_connect(query):
-    mysql_cn = pymysql.connect(host='127.0.0.1',
-                               port=3306, user='root', passwd='fnwl5r',
-                               db='chalkprint')
-    return pd.read_sql(query, con=mysql_cn)
-
-
-class BoulderingSession:
+class BoulderingSession(object):
 
     def __init__(self, dataframe):
         self.data = dataframe
-
-    def data_frame(self):
-        return self.data
+        self.acceleration = ["accelX", "accelY", "accelZ"]
+        self.rotation = ["rotX", "rotY", "rotZ"]
+        self.altitude = "relAltitude"
 
     def set_time_index(self, time_col):
         """
@@ -52,32 +44,14 @@ class BoulderingSession:
         #pd.timestamp defaults to nanoseconds, dividing by 10^9 converts to sec
         del self.data[time_col]
 
-    def find_diff(self, var_names):
-        """
-        The find diff function finds the total scalar difference between the any two vectors, a rolling mean can then
-         be calculated to find the mean rate of change per second, allow us
-         to detect periods of increased activity and movement.
-         """
-        return pd.Series(
-            (sum([(self.data[i] - self.data[i].shift(-1)) ** 2 for i in var_names])) ** .5
-            , index=self.data.index)
-
-    def smooth_series(self, column, interval, method):
-        col_name = column + "_smoothed"
-        if method == 'savgol':
-            self.data[col_name] = savgol_filter(self.data[column], window_length=interval, polyorder=2)
-        elif method == 'rolling_mean':
-            self.data[col_name] = pd.rolling_mean(self.data[column], window=interval)
-
-    def find_start(self, column):
-        if self.data['is_climbing'] == False:
-            pass
-        return self.data['is_climbing']
-
     def find_ground(self, min_interval=301, smooth_interval=29):
         """input smoothed relAltitude"""
-        s_ = savgol_filter(self.data['relAltitude'], window_length=smooth_interval, polyorder=2)
+        s_ = pt.smooth_series(column=self.altitude, interval=smooth_interval)
         return pd.rolling_min(s_, window=min_interval)
+
+    def find_problem_start(self):
+
+
 
 """Global Variables/Lists"""
 
@@ -87,7 +61,7 @@ alt_to_loop = ["relAltitude"]
 query_raw = "select * from chalkprint.bouldering_raw"
 
 if __name__ == "__main__":
-    input_data = local_db_connect(query_raw)
+    input_data = local_connection.local_db_connect(query_raw)
     data_dict = {}
     group_id = 'session_id'
     smooth_interval = 5
@@ -95,13 +69,17 @@ if __name__ == "__main__":
         data_dict[name] = group.drop(group_id, axis=1)
 
     for session in data_dict:
-        session_bouldering = BoulderingSession(data_dict[session])
-        session_bouldering.set_time_index('timeStamp')
-        session_bouldering.smooth_series(column='relAltitude', interval=29, method='savgol')
-        session_bouldering.find_diff(accel_to_loop)
-        session_bouldering.find_ground()
-        out_data = session_bouldering.data_frame()
-        out_data['ground'] = session_bouldering.find_ground()
-        print(out_data[:10])
+        sess = BoulderingSession(data_dict[session])
+        sess.set_time_index('timeStamp')
+        sess.smooth_series(column='relAltitude', interval=29, method='savgol')
+        sess.find_ground()
+        print(dir(sess))
+        out_data = sess.data_frame
+        out_data['ground'] = sess.find_ground()
+        out_data[['delta_accel']] = sess.find_diff(accel_to_loop)
+        #print(sess.find_diff(accel_to_loop))
+        out_data[['delta_alt']] = sess.find_diff(['relAltitude_smoothed'])
+        #print(out_data[:10])
         out_data[['relAltitude', 'relAltitude_smoothed','ground']].plot()
+        out_data[['relAltitude_smoothed', 'delta_accel', 'delta_alt']].plot()
 
